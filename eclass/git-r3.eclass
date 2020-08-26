@@ -210,6 +210,20 @@ fi
 # EGIT_SUBMODULES=( '*' '-test-*' test-lib )
 # @CODE
 
+# @ECLASS-VARIABLE: EGIT_GPG_FINGERPRINT
+# @DEFAULT_UNSET
+# @DESCRIPTION:
+# The GPG key fingerprint ultimately trusted for verifying
+# the identifier to be checked out. EGIT_GPG_FINGERPRINT
+# must be set simulteanously with EGIT_GPG_KEY_PATH.
+
+# @ECLASS-VARIABLE: EGIT_GPG_KEY_PATH
+# @DEFAULT_UNSET
+# @DESCRIPTION:
+# The location of the public GPG key path in the filesystem
+# which will be used for verifying the identifier. EGIT_GPG_KEY_PATH
+# must be set simulteanously EGIT_GPG_FINGERPRINT.
+
 # @FUNCTION: _git-r3_env_setup
 # @INTERNAL
 # @DESCRIPTION:
@@ -282,6 +296,10 @@ _git-r3_env_setup() {
 
 	if [[ ${EGIT_COMMIT} && ${EGIT_COMMIT_DATE} ]]; then
 		die "EGIT_COMMIT and EGIT_COMMIT_DATE can not be specified simultaneously"
+	fi
+
+	if [[ ${EGIT_GPG_FINGERPRINT} && ! ${EGIT_GPG_KEY_PATH} ]] || [[ ! ${EGIT_GPG_FINGERPRINT} && ${EGIT_GPG_KEY_PATH} ]]; then
+		die "EGIT_COMMIT and EGIT_COMMIT_DATE must be specified simultaneously"
 	fi
 
 	# Migration helpers. Remove them when git-2 is removed.
@@ -820,6 +838,34 @@ git-r3_fetch() {
 		umask "${saved_umask}" || die
 	fi
 	[[ ${success} ]] || die "Unable to fetch from any of EGIT_REPO_URI"
+
+	# verify GPG signature of commit
+	if [[ ${EGIT_GPG_FINGERPRINT} && ${EGIT_GPG_KEY_PATH} ]]; then
+		local fingerprint=${EGIT_GPG_FINGERPRINT}
+		local gpg_key_path=${EGIT_GPG_KEY_PATH}
+
+		einfo "Verifying GPG signature of reference ${remote_ref}..."
+
+		# import key(s)
+		if [ ! -e "${EGIT_GPG_KEY_PATH}" ]; then
+			die "Unable to find ${EGIT_GPG_KEY_PATH}."
+		fi
+		gpg --import "${EGIT_GPG_KEY_PATH}"
+
+		# ultimately trust provided key from fingerprint
+		echo "${EGIT_GPG_FINGERPRINT}:6:" | gpg --import-ownertrust
+
+		# is a commit or a tag reference?
+		msg_gpg_bad="Wrong GPG signature of reference ${remote_ref}."
+		if [ "$(git cat-file -t ${remote_ref})" == commit ]; then
+			git verify-commit --raw "${remote_ref}" 2>&1 | grep -q '^\[GNUPG:\] TRUST_\(FULLY\|ULTIMATE\)' || die "${msg_gpg_bad}"
+		elif [ "$(git cat-file -t ${remote_ref})" == tag ]; then
+			git verify-tag --raw "${remote_ref}" 2>&1 | grep -q '^\[GNUPG:\] TRUST_\(FULLY\|ULTIMATE\)' || die "${msg_gpg_bad}"
+		else
+			# other than "commit" and "tag" types
+			die "Cannot verify GPG signature of provided Git reference."
+		fi
+	fi
 
 	# submodules can reference commits in any branch
 	# always use the 'mirror' mode to accomodate that, bug #503332
