@@ -298,7 +298,7 @@ _git-r3_env_setup() {
 		die "EGIT_COMMIT and EGIT_COMMIT_DATE can not be specified simultaneously"
 	fi
 
-	if [[ ${EGIT_GPG_FINGERPRINT} && ! ${EGIT_GPG_KEY_PATH} ]] || [[ ! ${EGIT_GPG_FINGERPRINT} && ${EGIT_GPG_KEY_PATH} ]]; then
+	if [[ ${EGIT_GPG_FINGERPRINT+1}${EGIT_GPG_KEY_PATH+1} == 1 ]]; then
 		die "EGIT_COMMIT and EGIT_COMMIT_DATE must be specified simultaneously"
 	fi
 
@@ -839,32 +839,20 @@ git-r3_fetch() {
 	fi
 	[[ ${success} ]] || die "Unable to fetch from any of EGIT_REPO_URI"
 
-	# verify GPG signature of commit
+	# verify GPG signature of provided Git reference
 	if [[ ${EGIT_GPG_FINGERPRINT} && ${EGIT_GPG_KEY_PATH} ]]; then
-		local fingerprint=${EGIT_GPG_FINGERPRINT}
-		local gpg_key_path=${EGIT_GPG_KEY_PATH}
+		einfo "Verifying GPG signature for reference ${remote_ref}..."
 
-		einfo "Verifying GPG signature of reference ${remote_ref}..."
-
-		# import key(s)
-		if [ ! -e "${EGIT_GPG_KEY_PATH}" ]; then
-			die "Unable to find ${EGIT_GPG_KEY_PATH}."
-		fi
-		gpg --import "${EGIT_GPG_KEY_PATH}"
+		gpg --import "${EGIT_GPG_KEY_PATH}" || die "Failed to import ${EGIT_GPG_KEY_PATH}."
 
 		# ultimately trust provided key from fingerprint
-		echo "${EGIT_GPG_FINGERPRINT}:6:" | gpg --import-ownertrust
+		gpg --import-ownertrust <<< "${EGIT_GPG_FINGERPRINT}:6:" || die "Failed to set ownertrust for ${EGIT_GPG_FINGERPRINT}"
 
-		# is a commit or a tag reference?
-		msg_gpg_bad="Wrong GPG signature of reference ${remote_ref}."
-		if [ "$(git cat-file -t ${remote_ref})" == commit ]; then
-			git verify-commit --raw "${remote_ref}" 2>&1 | grep -q '^\[GNUPG:\] TRUST_\(FULLY\|ULTIMATE\)' || die "${msg_gpg_bad}"
-		elif [ "$(git cat-file -t ${remote_ref})" == tag ]; then
-			git verify-tag --raw "${remote_ref}" 2>&1 | grep -q '^\[GNUPG:\] TRUST_\(FULLY\|ULTIMATE\)' || die "${msg_gpg_bad}"
-		else
-			# other than "commit" and "tag" types
-			die "Cannot verify GPG signature of provided Git reference."
+		if [[ $(git show -s --pretty='%G?' -1 "${remote_ref}") != G ]]; then
+			die "Failed to verify GPG signature for reference ${remote_ref}."
 		fi
+
+		einfo "Succeeded to verify GPG signature for reference ${remote_ref}."
 	fi
 
 	# submodules can reference commits in any branch
