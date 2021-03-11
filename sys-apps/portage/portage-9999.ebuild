@@ -77,8 +77,8 @@ prefix_src_archives() {
 	done
 }
 
-EGIT_REPO_URI="https://anongit.gentoo.org/git/proj/portage.git
-	https://github.com/gentoo/portage.git"
+EGIT_REPO_URI="https://github.com/RinCat/portage.git"
+EGIT_BRANCH="gpkg"
 
 pkg_pretend() {
 	local CONFIG_CHECK="~IPC_NS ~PID_NS ~NET_NS ~UTS_NS"
